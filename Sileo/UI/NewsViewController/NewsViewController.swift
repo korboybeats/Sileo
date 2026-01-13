@@ -24,7 +24,6 @@ class NewsViewController: SileoViewController, UICollectionViewDataSource,
     static let reloadNotification = Notification.Name("SileoNewPageReload")
 
     var gradientView: NewsGradientBackgroundView?
-    private var adHocDownloadTask: EvanderDownloader?
 
     private var sections = [Int64: [Package]]()
     private var timestamps = [Int64]()
@@ -120,128 +119,6 @@ class NewsViewController: SileoViewController, UICollectionViewDataSource,
         )
     }
 
-    private func buildDownloadURL(for pkg: Package) -> URL? {
-        var filename = pkg.filename ?? ""
-        if pkg.package.contains("/") {
-            filename = URL(fileURLWithPath: pkg.package).absoluteString
-        } else if !filename.hasPrefix("https://")
-            && !filename.hasPrefix("http://")
-        {
-            let base =
-                pkg.sourceRepo?.rawURL
-                ?? pkg.sourceRepo?.url?.absoluteString
-                ?? ""
-            filename =
-                URL(string: base)?.appendingPathComponent(filename)
-                .absoluteString ?? ""
-        }
-        return URL(string: filename)
-    }
-
-    public func presentVersionSelectionAndDownload(
-        for basePackage: Package,
-        anchor: UIView?
-    ) {
-        let sheet = UIAlertController(
-            title: String(localizationKey: "Select_Version"),
-            message: String(
-                localizationKey: "Select_Version_Message"
-            ),
-            preferredStyle: .actionSheet
-        )
-
-        let allVersionsSorted = basePackage.allVersions.sorted {
-            DpkgWrapper.isVersion($0.version, greaterThan: $1.version)
-        }
-
-        for pkg in allVersionsSorted {
-            if (pkg.sourceRepo?.rawURL.hasPrefix("https://") == true)
-                || (pkg.sourceRepo?.rawURL.hasPrefix("http://") == true),
-                pkg.filename != nil
-            {
-                sheet.addAction(
-                    UIAlertAction(title: pkg.version, style: .default) {
-                        [weak self] _ in
-                        self?.startDownloadAndShare(for: pkg, anchor: anchor)
-                    }
-                )
-            }
-        }
-
-        sheet.addAction(
-            UIAlertAction(
-                title: String(localizationKey: "Package_Cancel_Action"),
-                style: .cancel
-            )
-        )
-
-        if UIDevice.current.userInterfaceIdiom == .pad {
-            sheet.popoverPresentationController?.sourceView =
-                anchor ?? self.view
-        }
-        self.present(sheet, animated: true)
-    }
-
-    private func startDownloadAndShare(for pkg: Package, anchor: UIView?) {
-        let wait = UIAlertController(
-            title: String(localizationKey: "Downloading_Ellipsis"),
-            message: nil,
-            preferredStyle: .alert
-        )
-        let cancelAction = UIAlertAction(
-            title: String(localizationKey: "Cancel"),
-            style: .cancel
-        ) { [weak self] _ in
-            self?.adHocDownloadTask?.cancel()
-        }
-        wait.addAction(cancelAction)
-        self.present(wait, animated: true)
-
-        DownloadManager.shared.downloadFile(
-            for: pkg,
-            progress: nil,
-            waiting: nil,
-            onStart: { [weak self] task in
-                self?.adHocDownloadTask = task
-            },
-            completion: { result in
-                DispatchQueue.main.async {
-                    self.adHocDownloadTask = nil
-                    switch result {
-                    case .success(let localURL):
-                        wait.dismiss(animated: true) {
-                            var shareURL = localURL
-                            let tmpDir = FileManager.default.temporaryDirectory
-                            let tmpURL = tmpDir.appendingPathComponent(localURL.lastPathComponent)
-                            do {
-                                if FileManager.default.fileExists(atPath: tmpURL.path) {
-                                    try? FileManager.default.removeItem(at: tmpURL)
-                                }
-                                try FileManager.default.copyItem(at: localURL, to: tmpURL)
-                                shareURL = tmpURL
-                            } catch {
-                                shareURL = localURL
-                            }
-                            let avc = UIActivityViewController(
-                                activityItems: [shareURL], applicationActivities: nil)
-                            avc.popoverPresentationController?.sourceView = anchor ?? self.view
-                            self.present(avc, animated: true)
-                        }
-                    case .failure(let error):
-                        wait.dismiss(animated: true) {
-                            let err = UIAlertController(
-                                title: "Download Failed", message: error.localizedDescription,
-                                preferredStyle: .alert)
-                            err.addAction(
-                                UIAlertAction(title: String(localizationKey: "OK"), style: .default)
-                            )
-                            self.present(err, animated: true)
-                        }
-                    }
-                }
-            }
-        )
-    }
     
     @objc func reloadStates(_ notification: Notification) {
         let wasInstall = notification.object as? Bool ?? false
