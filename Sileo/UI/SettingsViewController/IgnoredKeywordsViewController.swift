@@ -127,5 +127,31 @@ class IgnoredKeywordsViewController: SileoTableViewController {
     
     override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
+        editKeyword(at: indexPath)
+    }
+    
+    private func editKeyword(at indexPath: IndexPath) {
+        let currentKeyword = ignoredKeywords[indexPath.row]
+        let alert = UIAlertController(title: String(localizationKey: "Edit_Keyword"), message: nil, preferredStyle: .alert)
+        alert.addTextField { textField in
+            textField.placeholder = String(localizationKey: "Keyword")
+            textField.text = currentKeyword
+        }
+        
+        let editAction = UIAlertAction(title: String(localizationKey: "Edit"), style: .default) { [weak self] _ in
+            guard let self = self, let text = alert.textFields?.first?.text, !text.isEmpty else { return }
+            if !self.ignoredKeywords.contains(text) {
+                self.ignoredKeywords[indexPath.row] = text
+                self.saveKeywords()
+                self.tableView.reloadRows(at: [indexPath], with: .automatic)
+            }
+        }
+        
+        let cancelAction = UIAlertAction(title: String(localizationKey: "Cancel"), style: .cancel, handler: nil)
+        
+        alert.addAction(editAction)
+        alert.addAction(cancelAction)
+        
+        present(alert, animated: true, completion: nil)
     }
 }

@@ -255,6 +255,7 @@
 "Add_Ignored_Keyword" = "Add Ignored Keyword";
 "Keyword" = "Keyword";
 "Add" = "Add";
+"Edit_Keyword" = "Edit Keyword";
 "Ignored_Keywords_Description" = "Filter out packages containing specific keywords.";
 
 "Clean_Repos" = "Clean Repos";
