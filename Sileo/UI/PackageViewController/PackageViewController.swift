@@ -40,8 +40,6 @@ class PackageViewController: SileoViewController,
     private var navBarShareButtonItem: UIBarButtonItem?
     private var navBarDownloadButtonItem: UIBarButtonItem?
 
-    private var adHocDownloadTask: EvanderDownloader?
-
     private var depictionView: DepictionBaseView?
     private var depictionFooterView: DepictionBaseView?
 
@@ -1022,111 +1020,7 @@ class PackageViewController: SileoViewController,
         self.present(sheet, animated: true)
     }
 
-    private func presentVersionSelectionAndDownload(
-        for basePackage: Package,
-        anchor: UIView?
-    ) {
-        let sheet = UIAlertController(
-            title: String(localizationKey: "Select Version"),
-            message: String(
-                localizationKey: "Select the version of the package to Download"
-            ),
-            preferredStyle: .actionSheet
-        )
-
-        let allVersionsSorted = basePackage.allVersions.sorted {
-            DpkgWrapper.isVersion($0.version, greaterThan: $1.version)
-        }
-
-        for pkg in allVersionsSorted {
-            if (pkg.sourceRepo?.rawURL.hasPrefix("https://") == true)
-                || (pkg.sourceRepo?.rawURL.hasPrefix("http://") == true),
-                pkg.filename != nil
-            {
-                sheet.addAction(
-                    UIAlertAction(title: pkg.version, style: .default) {
-                        [weak self] _ in
-                        self?.startDownloadAndShare(for: pkg, anchor: anchor)
-                    }
-                )
-            }
-        }
-
-        sheet.addAction(
-            UIAlertAction(
-                title: String(localizationKey: "Package_Cancel_Action"),
-                style: .cancel
-            )
-        )
-
-        if UIDevice.current.userInterfaceIdiom == .pad {
-            sheet.popoverPresentationController?.sourceView =
-                anchor ?? self.view
-        }
-        self.present(sheet, animated: true)
-    }
-
-    private func startDownloadAndShare(for pkg: Package, anchor: UIView?) {
-        let wait = UIAlertController(
-            title: String(localizationKey: "Downloading_Ellipsis"),
-            message: nil,
-            preferredStyle: .alert
-        )
-        let cancelAction = UIAlertAction(
-            title: String(localizationKey: "Cancel"),
-            style: .cancel
-        ) { [weak self] _ in
-            self?.adHocDownloadTask?.cancel()
-        }
-        wait.addAction(cancelAction)
-        self.present(wait, animated: true)
-
-        DownloadManager.shared.downloadFile(
-            for: pkg,
-            progress: nil,
-            waiting: nil,
-            onStart: { [weak self] task in
-                self?.adHocDownloadTask = task
-            },
-            completion: { result in
-                DispatchQueue.main.async {
-                    self.adHocDownloadTask = nil
-                    switch result {
-                    case .success(let localURL):
-                        wait.dismiss(animated: true) {
-                            var shareURL = localURL
-                            let tmpDir = FileManager.default.temporaryDirectory
-                            let tmpURL = tmpDir.appendingPathComponent(localURL.lastPathComponent)
-                            do {
-                                if FileManager.default.fileExists(atPath: tmpURL.path) {
-                                    try? FileManager.default.removeItem(at: tmpURL)
-                                }
-                                try FileManager.default.copyItem(at: localURL, to: tmpURL)
-                                shareURL = tmpURL
-                            } catch {
-                                shareURL = localURL
-                            }
-                            let avc = UIActivityViewController(
-                                activityItems: [shareURL], applicationActivities: nil)
-                            avc.popoverPresentationController?.sourceView = anchor ?? self.view
-                            self.present(avc, animated: true)
-                        }
-                    case .failure(let error):
-                        wait.dismiss(animated: true) {
-                            let err = UIAlertController(
-                                title: "Download Failed", message: error.localizedDescription,
-                                preferredStyle: .alert)
-                            err.addAction(
-                                UIAlertAction(title: String(localizationKey: "OK"), style: .default)
-                            )
-                            self.present(err, animated: true)
-                        }
-                    }
-                }
-            }
-        )
-    }
-
+    
     func mailComposeController(
         _ controller: MFMailComposeViewController,
         didFinishWith result: MFMailComposeResult,

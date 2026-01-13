@@ -48,7 +48,7 @@ public class SileoViewController: UIViewController {
         return statusBarStyle
     }
     
-    public func presentVersionSelectionAndDownload(
+    func presentVersionSelectionAndDownload(
         for basePackage: Package,
         anchor: UIView?
     ) {
