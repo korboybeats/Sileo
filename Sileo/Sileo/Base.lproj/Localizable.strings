@@ -45,7 +45,10 @@
 "Download_Progress" = "%@ of %@"; // first %@ = amount downloaded, second %@ = total to download
 
 // Download DEB / Copy URL
+"Download_DEB" = "Download DEB";
 "Copy_DEB_URL" = "Copy DEB URL";
+"Select_Version" = "Select Version";
+"Select_Version_Message" = "Select the version of the package to Download";
 "Downloading_Ellipsis" = "Downloading…";
 
 "Essential_Warning" = "The following packages are listed as essential/required: %@\n Removing these could cause irreversible damage to your device and may require you to restore. Only continue if you are certain you know what you're doing.";

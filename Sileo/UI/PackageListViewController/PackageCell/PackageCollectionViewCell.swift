@@ -252,8 +252,6 @@ extension PackageCollectionViewCell: SwipeCollectionViewCellDelegate {
         editActionsForItemAt indexPath: IndexPath,
         for orientation: SwipeActionsOrientation
     ) -> [SwipeAction]? {
-        // Different actions depending on where we are headed
-        // Also making sure that the set package actually exists
         if let provisionalPackage = provisionalTarget {
             let repo = provisionalPackage.repository
             guard orientation == .right else { return nil }
@@ -267,26 +265,25 @@ extension PackageCollectionViewCell: SwipeCollectionViewCellDelegate {
         else { return nil }
         var actions = [SwipeAction]()
         let queueFound = DownloadManager.shared.find(package: package)
-        // We only want delete if we're going left, and only if it's in the queue
         if orientation == .left {
             if queueFound != .none {
                 actions.append(cancelAction(package))
+            } else {
+                actions.append(downloadAction(package))
             }
             return actions
         }
-        // Check if the package is actually installed
+        
         if let installedPackage = PackageListManager.shared.installedPackage(
             identifier: package.package
         ) {
             let repo = RepoManager.shared.repoList.first(where: {
                 $0.rawEntry == package.sourceFile
             })
-            // Check we have a repo for the package
             if queueFound != .uninstallations {
                 actions.append(uninstallAction(package))
             }
             if package.filename != nil && repo != nil {
-                // Check if can be updated
                 if DpkgWrapper.isVersion(
                     package.version,
                     greaterThan: installedPackage.version
@@ -295,7 +292,6 @@ extension PackageCollectionViewCell: SwipeCollectionViewCellDelegate {
                         actions.append(upgradeAction(package))
                     }
                 } else {
-                    // Only add re-install if it can't be updated
                     if queueFound != .installations {
                         actions.append(reinstallAction(package))
                     }
@@ -318,6 +314,36 @@ extension PackageCollectionViewCell: SwipeCollectionViewCellDelegate {
         options.expansionStyle = .selection
         return options
     }
+
+    private func downloadAction(_ package: Package) -> SwipeAction {
+        let download = SwipeAction(
+            style: .default,
+            title: String(localizationKey: "Download_DEB")
+        ) { _, _ in
+            if let plvc = self.viewController() as? PackageListViewController {
+                plvc.presentVersionSelectionAndDownload(for: package, anchor: self)
+            } else if let nvc = self.viewController() as? NewsViewController {
+                nvc.presentVersionSelectionAndDownload(for: package, anchor: self)
+            }
+            self.hapticResponse()
+            self.hideSwipe(animated: true)
+        }
+        download.image = UIImage(systemNameOrNil: "arrow.down.circle")
+        download.backgroundColor = .systemBlue
+        return download
+    }
+
+    private func viewController() -> UIViewController? {
+        var responder: UIResponder? = self
+        while responder != nil {
+            if let vc = responder as? UIViewController {
+                return vc
+            }
+            responder = responder?.next
+        }
+        return nil
+    }
+
 
     private func addRepo(_ package: ProvisionalPackage) -> SwipeAction {
         let addRepo = SwipeAction(
