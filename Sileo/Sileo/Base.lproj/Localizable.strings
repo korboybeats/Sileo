@@ -3,7 +3,7 @@
   Sileo
 
   Created by AppleBetas on 2018-12-27.
-  Copyright © 2018 CoolStar. All rights reserved.
+  Copyright © 2018 CoolStar. All rights reserved. 
  
  LOCALISATIONS
 */
@@ -179,6 +179,7 @@
 "Help_Translate" = "Help Translate Sileo";
 "Always_Show_Install_Log" = "Always Show Install Log";
 "Auto_Show_Queue" = "Show Queue on Upgrade All";
+"Show_Package_Count" = "Show Package Count";
 
 "Sileo_Light" = "Sileo Light";
 "Sileo_Dark" = "Sileo Dark";
@@ -240,6 +241,7 @@
 "View_Depiction" = "View Depiction";
 
 "Copy_ID" = "Copy ID";
+"Copy_Name" = "Copy Name";
 "Canister_Policy" = "Canister Privacy Policy";
 "Download_Analytics" = "Download Analytics";
 "Provided_Canister" = "Provided by Canister";
@@ -248,3 +250,17 @@
 "Whats_Collected" = "What's Collected";
 "Non_Identifying" = "Only package and non-identifying device information is collected.";
 "Privacy_Policy" = "Privacy Policy";
+
+"Ignored_Keywords" = "Ignored Keywords";
+"Add_Ignored_Keyword" = "Add Ignored Keyword";
+"Keyword" = "Keyword";
+"Add" = "Add";
+"Ignored_Keywords_Description" = "Filter out packages containing specific keywords.";
+
+"Clean_Repos" = "Clean Repos";
+"Clean_Repos.Message" = "The following repositories seem to be offline or invalid:\n\n%@\n\nDo you want to remove them?";
+
+"All_Sources_Online" = "All sources are online.";
+"Copy_Name" = "Copy Name";
+"Add_To_Ignored_Keywords" = "Add to Ignored Keywords";
+"Ignored_Keyword_Added" = "\"%@\" was added to your ignored keywords.";

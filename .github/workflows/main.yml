@@ -3,10 +3,10 @@ on:
     branches:
       - main
 
-name: Build Nightly
+name: Build and Release
 jobs:
   make:
-    name: Build and Upload Sileo
+    name: Build and Release Sileo
     runs-on: macos-latest
     steps:
       - name: Checkout
@@ -39,22 +39,38 @@ jobs:
         run: |
           sudo xcode-select --switch /Applications/Xcode_16.4.app
 
-      - name: Build Sileo Nightly (iphoneos-arm)
+      - name: Build Sileo (iphoneos-arm64)
         run: |
-          make clean package NIGHTLY=1 DEBUG=0 ALL_BOOTSTRAPS=1 SILEO_PLATFORM=iphoneos-arm
-
-      - name: Build Sileo Nightly (iphoneos-arm64)
-        run: |
-          make clean package NIGHTLY=1 DEBUG=0 ALL_BOOTSTRAPS=1 SILEO_PLATFORM=iphoneos-arm64
+          make clean package NIGHTLY=0 DEBUG=0 ALL_BOOTSTRAPS=1 SILEO_PLATFORM=iphoneos-arm64
       
-      - name: Upload Sileo Nightly (iphoneos-arm)
-        uses: actions/upload-artifact@v4
-        with:
-          name: org.coolstar.sileonightly_iphoneos-arm
-          path: ./packages/*_iphoneos-arm.deb
+      - name: Get Build Information
+        id: build_info
+        run: |
+          DEB_PATH=$(find ./packages -name "*.deb")
+          DEB_NAME=$(basename "$DEB_PATH")
+          TAG_NAME=$(date +"%Y-%m-%d-%H%M%S")-$(git rev-parse --short HEAD)
+          echo "deb_path=$DEB_PATH" >> $GITHUB_OUTPUT
+          echo "deb_name=$DEB_NAME" >> $GITHUB_OUTPUT
+          echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
 
-      - name: Upload Sileo Nightly (iphoneos-arm64)
-        uses: actions/upload-artifact@v4
+      - name: Create GitHub Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          name: org.coolstar.sileonightly_iphoneos-arm64
-          path: ./packages/*_iphoneos-arm64.deb
+          tag_name: ${{ steps.build_info.outputs.tag_name }}
+          release_name: "Sileo Build ${{ steps.build_info.outputs.tag_name }}"
+          body: "Automated Sileo build."
+          draft: false
+          prerelease: false
+
+      - name: Upload .deb to Release
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ${{ steps.build_info.outputs.deb_path }}
+          asset_name: ${{ steps.build_info.outputs.deb_name }}
+          asset_content_type: application/vnd.debian.binary-package

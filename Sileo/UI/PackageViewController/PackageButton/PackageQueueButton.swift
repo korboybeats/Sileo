@@ -361,6 +361,34 @@ class PackageQueueButton: PackageButton {
         }
         actionItems.append(copyBundleIDAction)
 
+        let copyNameAction = CSActionItem(
+            title: String(localizationKey: "Copy_Name"),
+            image: .init(systemNameOrNil: "doc.on.doc"),
+            style: .default
+        ) {
+            UIPasteboard.general.string = package.name ?? package.packageID
+        }
+        actionItems.append(copyNameAction)
+        
+        let ignoreAction = CSActionItem(
+            title: String(localizationKey: "Add_To_Ignored_Keywords"),
+            image: .init(systemNameOrNil: "eye.slash"),
+            style: .destructive
+        ) {
+            var ignored = UserDefaults.standard.stringArray(forKey: "IgnoredKeywords") ?? []
+            let keyword = package.name ?? package.packageID
+            if !ignored.contains(keyword) {
+                ignored.append(keyword)
+                UserDefaults.standard.set(ignored, forKey: "IgnoredKeywords")
+                NotificationCenter.default.post(name: Notification.Name("IgnoredKeywordsChanged"), object: nil)
+                
+                let alert = UIAlertController(title: nil, message: String(format: String(localizationKey: "Ignored_Keyword_Added"), keyword), preferredStyle: .alert)
+                alert.addAction(UIAlertAction(title: String(localizationKey: "OK"), style: .cancel))
+                self.viewControllerForPresentation?.present(alert, animated: true)
+            }
+        }
+        actionItems.append(ignoreAction)
+
         return actionItems
     }
 

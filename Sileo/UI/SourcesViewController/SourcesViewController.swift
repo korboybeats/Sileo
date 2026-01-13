@@ -194,12 +194,14 @@ final class SourcesViewController: SileoViewController {
                         target: self,
                         action: #selector(self.toggleEditing(_:))
                     )
-                    nav.rightBarButtonItem = UIBarButtonItem(
+                    
+                    let exportBtn = UIBarButtonItem(
                         title: exportTitle,
                         style: .plain,
                         target: self,
                         action: #selector(self.exportSources(_:))
                     )
+                    nav.rightBarButtonItems = [exportBtn]
                 } else {
                     nav.leftBarButtonItem = UIBarButtonItem(
                         title: String(localizationKey: "Edit"),
@@ -207,6 +209,15 @@ final class SourcesViewController: SileoViewController {
                         target: self,
                         action: #selector(self.toggleEditing(_:))
                     )
+                    
+                    let cleanBtn: UIBarButtonItem
+                    if #available(iOS 13.0, *) {
+                        cleanBtn = UIBarButtonItem(image: UIImage(systemName: "wand.and.stars"), style: .plain, target: self, action: #selector(self.cleanRepos(_:)))
+                    } else {
+                        let cleanTitle = String(localizationKey: "Clean_Repos")
+                        cleanBtn = UIBarButtonItem(title: cleanTitle, style: .plain, target: self, action: #selector(self.cleanRepos(_:)))
+                    }
+                    
                     if #available(iOS 14.0, *) {
                         let promptAddRepoAction = UIAction(
                             title: "Add Repo",
@@ -226,17 +237,19 @@ final class SourcesViewController: SileoViewController {
                             title: "Add Repos",
                             children: [promptAddRepoAction, importReposAction]
                         )
-                        nav.rightBarButtonItem = UIBarButtonItem(
+                        let addBtn = UIBarButtonItem(
                             systemItem: .add,
                             primaryAction: promptAddRepoAction,
                             menu: menu
                         )
+                        nav.rightBarButtonItems = [addBtn, cleanBtn]
                     } else {
-                        nav.rightBarButtonItem = UIBarButtonItem(
+                        let addBtn = UIBarButtonItem(
                             barButtonSystemItem: .add,
                             target: self,
                             action: #selector(self.addSource(_:))
                         )
+                        nav.rightBarButtonItems = [addBtn, cleanBtn]
                     }
                 }
 
@@ -624,6 +637,96 @@ final class SourcesViewController: SileoViewController {
         alert.addAction(noAction)
 
         self.present(alert, animated: true, completion: nil)
+    }
+
+    @objc func cleanRepos(_ sender: Any?) {
+        guard let tableView = self.tableView,
+              !self.refreshControl.isRefreshing else { return }
+        
+        self.navigationItem.rightBarButtonItems?.forEach { $0.isEnabled = false }
+        
+        // Check if we are scrolled down
+        let isScrolledDown = tableView.contentOffset.y > -tableView.adjustedContentInset.top
+        
+        // 1. Scroll to the top first to reset the navigation bar state.
+        // We use animated: false to force an immediate layout update so we get the correct insets.
+        let topRow = IndexPath(row: 0, section: 0)
+        if tableView.numberOfSections > 0 && tableView.numberOfRows(inSection: 0) > 0 {
+            if isScrolledDown {
+                tableView.scrollToRow(at: topRow, at: .top, animated: false)
+                tableView.layoutIfNeeded()
+            } else {
+                tableView.scrollToRow(at: topRow, at: .top, animated: true)
+            }
+        }
+        
+        // 2. Short delay to let the UI settle, then pull down.
+        // We add extra delay and offset if we came from the bottom to account for the nav bar expanding.
+        DispatchQueue.main.asyncAfter(deadline: .now() + (isScrolledDown ? 0.4 : 0.1)) {
+            self.refreshControl.beginRefreshing()
+            var top = tableView.adjustedContentInset.top
+            // If we just scrolled to top, the inset might still be reporting the small title height.
+            // We blindly add the difference (~52pt) if we know we forced a large title transition.
+            if isScrolledDown {
+                top += 52
+            }
+            let height = self.refreshControl.frame.height
+            tableView.setContentOffset(CGPoint(x: 0, y: -(top + height)), animated: true)
+        }
+        
+        DispatchQueue.global(qos: .userInitiated).async {
+            let repos = self.sortedRepoList
+            var deadRepos: [Repo] = []
+            let group = DispatchGroup()
+            
+            for repo in repos {
+                // Skip built-in repos that might be important or have special handling
+                if repo.rawURL.contains("apt.procurs.us") || repo.rawURL.contains("apt.bingner.com") {
+                    continue
+                }
+                
+                group.enter()
+                if let url = repo.url?.appendingPathComponent("Release") {
+                    EvanderNetworking.head(url: url) { success in
+                        if !success {
+                            deadRepos.append(repo)
+                        }
+                        group.leave()
+                    }
+                } else {
+                    // Also consider repos with invalid URLs as "dead"
+                    deadRepos.append(repo)
+                    group.leave()
+                }
+            }
+            
+            group.wait()
+            
+            DispatchQueue.main.async {
+                self.refreshControl.endRefreshing()
+                self.navigationItem.rightBarButtonItems?.forEach { $0.isEnabled = true }
+                
+                if deadRepos.isEmpty {
+                    let alert = UIAlertController(title: String(localizationKey: "All_Sources_Online"), message: nil, preferredStyle: .alert)
+                    alert.addAction(UIAlertAction(title: String(localizationKey: "OK"), style: .cancel))
+                    self.present(alert, animated: true)
+                    return
+                }
+                
+                let message = String(format: String(localizationKey: "Clean_Repos.Message"), deadRepos.map { "• \($0.rawURL)" }.joined(separator: "\n"))
+                
+                let confirmAlert = UIAlertController(title: nil, message: message, preferredStyle: .alert)
+                
+                confirmAlert.addAction(UIAlertAction(title: String(localizationKey: "Confirm"), style: .destructive, handler: { _ in
+                    RepoManager.shared.remove(repos: deadRepos)
+                    self.reloadData()
+                }))
+                
+                confirmAlert.addAction(UIAlertAction(title: String(localizationKey: "Cancel"), style: .cancel))
+                
+                self.present(confirmAlert, animated: true)
+            }
+        }
     }
 
     public func presentAddSourceEntryField(url: URL?) {

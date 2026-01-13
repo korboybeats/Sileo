@@ -108,7 +108,7 @@ extension SettingsViewController {  // UITableViewDataSource
         case 1:  // Themes
             return 5
         case 2:
-            return 11
+            return 13
         case 3:  // About section
             return 5
         default:
@@ -218,6 +218,12 @@ extension SettingsViewController {  // UITableViewDataSource
                 fatalError("You done goofed")
             }
         case 2:
+            if indexPath.row == 12 {
+                let cell = SettingsLabelTableViewCell()
+                cell.amyPogLabel.text = String(localizationKey: "Ignored_Keywords")
+                cell.accessoryType = .disclosureIndicator
+                return cell
+            }
             let cell = SettingsSwitchTableViewCell()
             switch indexPath.row {
             case 0:
@@ -417,6 +423,11 @@ extension SettingsViewController {  // UITableViewDataSource
                 )
             default: break
             }
+        case 2:
+            if indexPath.row == 12 {
+                let vc = IgnoredKeywordsViewController(style: .grouped)
+                self.navigationController?.pushViewController(vc, animated: true)
+            }
         case 3:  // About section
             switch indexPath.row {
             case 0:
@@ -472,6 +483,16 @@ extension SettingsViewController {  // UITableViewDataSource
         default:
             return nil
         }
+    }
+
+    override func tableView(
+        _ tableView: UITableView,
+        titleForFooterInSection section: Int
+    ) -> String? {
+        if section == 2 {
+            return String(localizationKey: "Ignored_Keywords_Description")
+        }
+        return nil
     }
 
     private func cacheClear() {

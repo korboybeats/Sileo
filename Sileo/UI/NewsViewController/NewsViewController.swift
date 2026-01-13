@@ -45,6 +45,14 @@ class NewsViewController: SileoViewController, UICollectionViewDataSource,
 
         self.title = String(localizationKey: "News_Page")
 
+        if #available(iOS 13.0, *), let icon = UIImage(systemName: "line.3.horizontal.decrease.circle") {
+            let filterBtn = UIBarButtonItem(image: icon, style: .plain, target: self, action: #selector(self.showFilter(_:)))
+            self.navigationItem.rightBarButtonItem = filterBtn
+        } else {
+            let filterBtn = UIBarButtonItem(title: String(localizationKey: "Ignored_Keywords"), style: .plain, target: self, action: #selector(self.showFilter(_:)))
+            self.navigationItem.rightBarButtonItem = filterBtn
+        }
+
         dateFormatter.dateStyle = DateFormatter.Style.long
         dateFormatter.timeStyle = DateFormatter.Style.short
         if let locale = LanguageHelper.shared.locale {
@@ -99,6 +107,12 @@ class NewsViewController: SileoViewController, UICollectionViewDataSource,
         )
         NotificationCenter.default.addObserver(
             weakSelf as Any,
+            selector: #selector(reloadData),
+            name: Notification.Name("IgnoredKeywordsChanged"),
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            weakSelf as Any,
             selector: #selector(self.reloadStates(_:)),
             name: PackageListManager.stateChange,
             object: nil
@@ -119,6 +133,11 @@ class NewsViewController: SileoViewController, UICollectionViewDataSource,
                 packageCells.forEach { $0.refreshState() }
             }
         }
+    }
+
+    @objc func showFilter(_ sender: Any?) {
+        let vc = IgnoredKeywordsViewController(style: .grouped)
+        self.navigationController?.pushViewController(vc, animated: true)
     }
 
     @objc func updateSileoColors() {
@@ -162,13 +181,22 @@ class NewsViewController: SileoViewController, UICollectionViewDataSource,
         }
     }
 
-    /*
-    override func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-            self.collectionView.reloadSections(IndexSet(integer: 0))
+    private func isIgnored(name: String?, id: String, description: String?) -> Bool {
+        let ignored = UserDefaults.standard.stringArray(forKey: "IgnoredKeywords") ?? []
+        if ignored.isEmpty { return false }
+        
+        let name = name?.lowercased() ?? ""
+        let id = id.lowercased()
+        let desc = description?.lowercased() ?? ""
+        
+        for keyword in ignored {
+            let key = keyword.lowercased()
+            if name.contains(key) || id.contains(key) || desc.contains(key) {
+                return true
+            }
         }
+        return false
     }
-    */
 }
 
 extension NewsViewController {  // Get Data
@@ -274,7 +302,10 @@ extension NewsViewController {  // Get Data
                 if let packages = packages[timestamp],
                     !packages.isEmpty
                 {
-                    master[timestamp] = Array(packages)
+                    let filtered = packages.filter { !self.isIgnored(name: $0.name, id: $0.packageID, description: $0.packageDescription) }
+                    if !filtered.isEmpty {
+                        master[timestamp] = Array(filtered)
+                    }
                 }
             }
             DispatchQueue.main.async {

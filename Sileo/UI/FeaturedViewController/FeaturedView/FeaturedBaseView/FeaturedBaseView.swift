@@ -19,6 +19,19 @@ open class FeaturedBaseView: DepictionBaseView {
         tintColor: UIColor?,
         isActionable: Bool
     ) -> DepictionBaseView? {
+        if let ignored = UserDefaults.standard.stringArray(forKey: "IgnoredKeywords"), !ignored.isEmpty {
+            let name = (dictionary["packageName"] as? String)?.lowercased() ?? ""
+            let id = (dictionary["package"] as? String)?.lowercased() ?? ""
+            let author = (dictionary["packageAuthor"] as? String)?.lowercased() ?? ""
+            
+            for keyword in ignored {
+                let key = keyword.lowercased()
+                if name.contains(key) || id.contains(key) || author.contains(key) {
+                    return nil
+                }
+            }
+        }
+        
         guard let className = dictionary["class"] as? String else {
             return nil
         }

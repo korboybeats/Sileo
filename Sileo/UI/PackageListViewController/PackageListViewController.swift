@@ -207,6 +207,12 @@ class PackageListViewController: SileoViewController,
         )
         NotificationCenter.default.addObserver(
             self,
+            selector: #selector(self.reloadData),
+            name: Notification.Name("IgnoredKeywordsChanged"),
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
             selector: #selector(self.reloadStates(_:)),
             name: PackageListManager.stateChange,
             object: nil
@@ -325,7 +331,7 @@ class PackageListViewController: SileoViewController,
                     sortPackages: true,
                     repoContext: self.repoContext
                 )
-                self.packages = pkgs
+                self.packages = pkgs.filter { !self.isIgnored(name: $0.name, id: $0.packageID, description: $0.packageDescription) }
                 self.searchCache[""] = pkgs
                 if let controller = self.searchController {
                     DispatchQueue.main.async {
@@ -684,6 +690,23 @@ class PackageListViewController: SileoViewController,
             },
             completion: nil
         )
+    }
+
+    private func isIgnored(name: String?, id: String, description: String?) -> Bool {
+        let ignored = UserDefaults.standard.stringArray(forKey: "IgnoredKeywords") ?? []
+        if ignored.isEmpty { return false }
+        
+        let name = name?.lowercased() ?? ""
+        let id = id.lowercased()
+        let desc = description?.lowercased() ?? ""
+        
+        for keyword in ignored {
+            let key = keyword.lowercased()
+            if name.contains(key) || id.contains(key) || desc.contains(key) {
+                return true
+            }
+        }
+        return false
     }
 }
 
@@ -1382,6 +1405,8 @@ extension PackageListViewController: UISearchBarDelegate {
                 }
             }
             if !contains { return false }
+            
+            if self.isIgnored(name: package.name, id: package.package, description: package.description) { return false }
 
             if let existingPackage = all.first(where: {
                 $0.packageID == package.package
@@ -1520,6 +1545,8 @@ extension PackageListViewController: UISearchResultsUpdating {
                 }
             }
 
+            packages = packages.filter { !self.isIgnored(name: $0.name, id: $0.packageID, description: $0.packageDescription) }
+            
             self.updatingCount -= 1
             if self.updatingCount != 0 {
                 return

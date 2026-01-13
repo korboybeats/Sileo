@@ -41,6 +41,12 @@ final class FeaturedViewController: SileoViewController, UIScrollViewDelegate,
             name: Notification.Name("iCloudProfile"),
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            weakSelf as Any,
+            selector: #selector(reloadData),
+            name: Notification.Name("IgnoredKeywordsChanged"),
+            object: nil
+        )
 
         FRUIView.animate(
             withDuration: 0.7,

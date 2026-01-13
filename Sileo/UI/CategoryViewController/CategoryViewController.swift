@@ -61,6 +61,12 @@ class CategoryViewController: SileoTableViewController {
             name: PackageListManager.reloadNotification,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(CategoryViewController.reloadData),
+            name: Notification.Name("IgnoredKeywordsChanged"),
+            object: nil
+        )
 
         self.registerForPreviewing(with: self, sourceView: self.tableView)
     }
@@ -83,12 +89,29 @@ class CategoryViewController: SileoTableViewController {
         updateSileoColors()
     }
 
+    private func isIgnored(name: String?, id: String, description: String?) -> Bool {
+        let ignored = UserDefaults.standard.stringArray(forKey: "IgnoredKeywords") ?? []
+        if ignored.isEmpty { return false }
+        
+        let name = name?.lowercased() ?? ""
+        let id = id.lowercased()
+        let desc = description?.lowercased() ?? ""
+        
+        for keyword in ignored {
+            let key = keyword.lowercased()
+            if name.contains(key) || id.contains(key) || desc.contains(key) {
+                return true
+            }
+        }
+        return false
+    }
+
     @objc func reloadData() {
         DispatchQueue.global(qos: .userInteractive).async {
             var categories: Set<String> = []
             var categoriesCountCache: [String: Int] = [:]
-            let packages: [Package]?
-            let installed: [Package]?
+            var packages: [Package]?
+            var installed: [Package]?
             if let context = self.repoContext,
                 let url = context.url
             {
@@ -100,6 +123,9 @@ class CategoryViewController: SileoTableViewController {
                 packages = PackageListManager.shared.allPackagesArray
                 installed = nil
             }
+            
+            packages = packages?.filter { !self.isIgnored(name: $0.name, id: $0.packageID, description: $0.packageDescription) }
+            installed = installed?.filter { !self.isIgnored(name: $0.name, id: $0.packageID, description: $0.packageDescription) }
 
             for package in packages ?? [] {
                 let category = PackageListManager.humanReadableCategory(

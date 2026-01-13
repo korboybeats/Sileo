@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		999999999999999999990003 /* IgnoredKeywordsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 999999999999999999990001 /* IgnoredKeywordsViewController.swift */; };
+		999999999999999999990002 /* IgnoredKeywordsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 999999999999999999990001 /* IgnoredKeywordsViewController.swift */; };
 		1716FD7321D5354100124AD2 /* FlaggedSourceWarningViewController.xib in Resources */ = {isa = PBXBuildFile; fileRef = 1716FD7221D5354100124AD2 /* FlaggedSourceWarningViewController.xib */; };
 		172B2ED122F08B21000155B9 /* SourceLicense.swift in Sources */ = {isa = PBXBuildFile; fileRef = 172B2ED022F08B21000155B9 /* SourceLicense.swift */; };
 		172B2ED322F08D31000155B9 /* LicenseViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 172B2ED222F08D31000155B9 /* LicenseViewController.swift */; };
@@ -1131,6 +1133,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		999999999999999999990001 /* IgnoredKeywordsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IgnoredKeywordsViewController.swift; sourceTree = "<group>"; };
 		1716FD7221D5354100124AD2 /* FlaggedSourceWarningViewController.xib */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.xib; path = FlaggedSourceWarningViewController.xib; sourceTree = "<group>"; };
 		172B2ED022F08B21000155B9 /* SourceLicense.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceLicense.swift; sourceTree = "<group>"; };
 		172B2ED222F08D31000155B9 /* LicenseViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LicenseViewController.swift; sourceTree = "<group>"; };
@@ -2779,6 +2782,7 @@
 		F17772DE20EC5221004C3CA5 /* SettingsViewController */ = {
 			isa = PBXGroup;
 			children = (
+				999999999999999999990001 /* IgnoredKeywordsViewController.swift */,
 				370531DC2820597F00B67743 /* Themes */,
 				E15A954426B990B1000DB10E /* Language */,
 				E13BD7872646C692006A5EF2 /* Sileo Team */,
@@ -3988,6 +3992,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				999999999999999999990002 /* IgnoredKeywordsViewController.swift in Sources */,
 				E128181E26BBFAA500D2553B /* APTWrapper.swift in Sources */,
 				E128181F26BBFAA500D2553B /* AppDelegate.swift in Sources */,
 				E128182026BBFAA500D2553B /* SileoSeparatorView.swift in Sources */,
@@ -4384,6 +4389,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				999999999999999999990003 /* IgnoredKeywordsViewController.swift in Sources */,
 				F1DD3CCD231118A500D86A52 /* APTWrapper.swift in Sources */,
 				F183CFB02318D1FF00D3AF3B /* AppDelegate.swift in Sources */,
 				F1C85B4D2325835D0064D3A2 /* SileoSeparatorView.swift in Sources */,
