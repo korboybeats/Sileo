@@ -687,12 +687,21 @@ final class SourcesViewController: SileoViewController {
                 
                 group.enter()
                 if let url = repo.url?.appendingPathComponent("Release") {
-                    EvanderNetworking.head(url: url) { success in
-                        if !success {
-                            deadRepos.append(repo)
+                    func checkRepoWithRetries(retryCount: Int) {
+                        EvanderNetworking.head(url: url) { success in
+                            if success {
+                                group.leave()
+                            } else if retryCount > 0 {
+                                DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 1) {
+                                    checkRepoWithRetries(retryCount: retryCount - 1)
+                                }
+                            } else {
+                                deadRepos.append(repo)
+                                group.leave()
+                            }
                         }
-                        group.leave()
                     }
+                    checkRepoWithRetries(retryCount: 2) // Initial attempt + 2 retries = 3 total
                 } else {
                     // Also consider repos with invalid URLs as "dead"
                     deadRepos.append(repo)
