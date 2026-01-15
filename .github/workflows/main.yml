@@ -7,6 +7,9 @@ name: Build and Release
 jobs:
   make:
     name: Build and Release Sileo
+    env:
+      PHONE_IP: ${{ secrets.PHONE_IP }}
+      SILEOTMP: ${{ github.workspace }}/sileo_build
     runs-on: macos-latest
     steps:
       - name: Checkout
@@ -14,22 +17,42 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Prepare Procursus Directory
+        run: |
+          sudo mkdir -p /opt/procursus
+          sudo chown -R $(whoami):admin /opt/procursus
+
+      - name: Cache Procursus Bootstrap
+        uses: actions/cache@v4
+        id: procursus-cache
+        with:
+          path: /opt/procursus
+          key: ${{ runner.os }}-procursus-debs-v3
+          restore-keys: |
+            ${{ runner.os }}-procursus-debs-
+
       - name: Setup Procursus Bootstrap (install)
+        if: steps.procursus-cache.outputs.cache-hit != 'true'
         run: |
           wget https://apt.procurs.us/bootstraps/big_sur/bootstrap-darwin-arm64.tar.zst
           sudo gtar --preserve-permissions -xkf ./bootstrap-darwin-arm64.tar.zst -C /
           echo '/opt/procursus/sbin:/opt/procursus/bin' >> $GITHUB_PATH
           PATH=/opt/procursus/sbin:/opt/procursus/bin:$PATH sudo /opt/procursus/bin/apt update
-          sudo /opt/procursus/bin/apt -V full-upgrade -y --allow-downgrades -oDpkg::Options::=--force-confdef -oDpkg::Options::=--force-confnew 
+          sudo /opt/procursus/bin/apt -V full-upgrade -y --allow-downgrades -oDpkg::Options::=--force-confdef -oDpkg::Options::=--force-confnew
         continue-on-error: true
-      
-      - name: Upgrade
-        run: |
-          sudo /opt/procursus/bin/apt -V upgrade -y --allow-downgrades -oDpkg::Options::=--force-confdef -oDpkg::Options::=--force-confnew
+
+      - name: Cache Xcode Build
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/sileo_build
+          key: ${{ runner.os }}-xcode-build-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-xcode-build-
     
       - name: Upgrade and install
         run: |
           sudo /opt/procursus/bin/apt install zstd apt-utils ldid xz-utils bzip2 lz4 -y --allow-downgrades -oDpkg::Options::=--force-confdef -oDpkg::Options::=--force-confnew
+      
         
       - name: Add Procursus to PATH
         run: |
@@ -41,36 +64,75 @@ jobs:
 
       - name: Build Sileo (iphoneos-arm64)
         run: |
-          make clean package NIGHTLY=0 DEBUG=0 ALL_BOOTSTRAPS=1 SILEO_PLATFORM=iphoneos-arm64
+          make package NIGHTLY=0 DEBUG=0 ALL_BOOTSTRAPS=1 SILEO_PLATFORM=iphoneos-arm64 SILEOTMP=${{ github.workspace }}/sileo_build
+      
+      - name: Fix Cache Permissions
+        run: |
+          sudo chown -R $(whoami):admin /opt/procursus
       
       - name: Get Build Information
         id: build_info
         run: |
           DEB_PATH=$(find ./packages -name "*.deb")
-          DEB_NAME=$(basename "$DEB_PATH")
-          TAG_NAME=$(date +"%Y-%m-%d-%H%M%S")-$(git rev-parse --short HEAD)
           echo "deb_path=$DEB_PATH" >> $GITHUB_OUTPUT
-          echo "deb_name=$DEB_NAME" >> $GITHUB_OUTPUT
-          echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
 
-      - name: Create GitHub Release
-        id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload Deb
+        uses: actions/upload-artifact@v4
         with:
-          tag_name: ${{ steps.build_info.outputs.tag_name }}
-          release_name: "Sileo Build ${{ steps.build_info.outputs.tag_name }}"
-          body: "Automated Sileo build."
-          draft: false
-          prerelease: false
+          name: sileo-deb
+          path: ${{ steps.build_info.outputs.deb_path }}
 
-      - name: Upload .deb to Release
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Cache Homebrew
+        uses: actions/cache@v4
         with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ${{ steps.build_info.outputs.deb_path }}
-          asset_name: ${{ steps.build_info.outputs.deb_name }}
-          asset_content_type: application/vnd.debian.binary-package
+          path: ~/Library/Caches/Homebrew
+          key: ${{ runner.os }}-brew-tailscale-v1
+          restore-keys: |
+            ${{ runner.os }}-brew-tailscale-
+
+      - name: Setup Tailscale (macOS)
+        env:
+          TAILSCALE_AUTHKEY: ${{ secrets.TAILSCALE_AUTHKEY }}
+          HOMEBREW_NO_AUTO_UPDATE: 1
+          HOMEBREW_NO_INSTALL_CLEANUP: 1
+        run: |
+          brew install tailscale
+          sudo tailscaled > /dev/null 2>&1 &
+          sleep 5
+          sudo tailscale up --authkey=$TAILSCALE_AUTHKEY --hostname=github-runner --accept-routes
+
+      - name: Install on Phone
+        if: env.PHONE_IP != ''
+        env:
+          PHONE_IP: ${{ secrets.PHONE_IP }}
+          PHONE_PORT: ${{ secrets.PHONE_PORT }}
+          PHONE_USER: ${{ secrets.PHONE_USER }}
+          PHONE_PASS: ${{ secrets.PHONE_PASS }}
+          PHONE_KEY: ${{ secrets.PHONE_KEY }}
+          DEB_PATH: ${{ steps.build_info.outputs.deb_path }}
+        run: |
+          brew install sshpass || true
+          
+          # Setup SSH args
+          SSH_PORT=${PHONE_PORT:-22}
+          SSH_ARGS="-o StrictHostKeyChecking=no -p $SSH_PORT"
+          
+          # Create key file if provided
+          if [ -n "$PHONE_KEY" ]; then
+            echo "$PHONE_KEY" > key_file
+            chmod 600 key_file
+            SSH_CMD="ssh -i key_file $SSH_ARGS"
+            SCP_CMD="scp -i key_file -P $SSH_PORT -o StrictHostKeyChecking=no"
+          elif [ -n "$PHONE_PASS" ]; then
+            SSH_CMD="sshpass -p $PHONE_PASS ssh $SSH_ARGS"
+            SCP_CMD="sshpass -p $PHONE_PASS scp -P $SSH_PORT -o StrictHostKeyChecking=no"
+          else
+            echo "No SSH credentials provided"
+            exit 1
+          fi
+          
+          # Copy
+          $SCP_CMD "$DEB_PATH" "$PHONE_USER@$PHONE_IP:/tmp/sileo.deb"
+          
+          # Install
+          $SSH_CMD "$PHONE_USER@$PHONE_IP" "dpkg -i /tmp/sileo.deb && rm /tmp/sileo.deb && (killall Sileo || true) && open org.coolstar.SileoStore && echo 'Installed Sileo update!'"
