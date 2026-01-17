@@ -326,12 +326,13 @@ class PackageListViewController: SileoViewController,
             let packageMan = PackageListManager.shared
 
             if !self.showSearchField {
+                // Packages are already pre-filtered by ignored keywords in PackageListManager
                 let pkgs = packageMan.packageList(
                     identifier: self.packagesLoadIdentifier,
                     sortPackages: true,
                     repoContext: self.repoContext
                 )
-                self.packages = pkgs.filter { !self.isIgnored(name: $0.name, id: $0.packageID, description: $0.packageDescription) }
+                self.packages = pkgs
                 self.searchCache[""] = pkgs
                 if let controller = self.searchController {
                     DispatchQueue.main.async {
@@ -692,22 +693,6 @@ class PackageListViewController: SileoViewController,
         )
     }
 
-    private func isIgnored(name: String?, id: String, description: String?) -> Bool {
-        let ignored = UserDefaults.standard.stringArray(forKey: "IgnoredKeywords") ?? []
-        if ignored.isEmpty { return false }
-        
-        let name = name?.lowercased() ?? ""
-        let id = id.lowercased()
-        let desc = description?.lowercased() ?? ""
-        
-        for keyword in ignored {
-            let key = keyword.lowercased()
-            if name.contains(key) || id.contains(key) || desc.contains(key) {
-                return true
-            }
-        }
-        return false
-    }
 }
 
 
@@ -1393,6 +1378,7 @@ extension PackageListViewController: UISearchBarDelegate {
         }
 
         let all = packages
+        let ignoredKeywords = PackageListManager.shared.ignoredKeywords
         self.provisionalPackages = CanisterResolver.shared.packages.filter {
             (package: ProvisionalPackage) -> Bool in
             let searchTerms = [
@@ -1407,8 +1393,16 @@ extension PackageListViewController: UISearchBarDelegate {
                 }
             }
             if !contains { return false }
-            
-            if self.isIgnored(name: package.name, id: package.package, description: package.description) { return false }
+
+            // Check ignored keywords
+            if !ignoredKeywords.isEmpty {
+                let name = package.name?.lowercased() ?? ""
+                let id = package.package.lowercased()
+                let desc = package.description?.lowercased() ?? ""
+                if ignoredKeywords.contains(where: { name.contains($0) || id.contains($0) || desc.contains($0) }) {
+                    return false
+                }
+            }
 
             if let existingPackage = all.first(where: {
                 $0.packageID == package.package
@@ -1498,56 +1492,61 @@ extension PackageListViewController: UISearchResultsUpdating {
 
             if let cachedPackages = self.searchCache[query.lowercased()] {
                 packages = cachedPackages
-            } else if self.packagesLoadIdentifier == "--contextInstalled" {
-                guard let context = self.repoContext,
-                    let url = context.url
-                else { return }
-                let betterContext =
-                    RepoManager.shared.repo(with: url) ?? context
-                packages = packageManager.packageList(
-                    identifier: self.packagesLoadIdentifier,
-                    search: query,
-                    sortPackages: true,
-                    repoContext: nil,
-                    lookupTable: self.searchCache,
-                    packagePrepend: betterContext.installed ?? []
-                )
-                self.searchCache[query.lowercased()] = packages
             } else {
-                packages = packageManager.packageList(
-                    identifier: self.packagesLoadIdentifier,
-                    search: query,
-                    sortPackages: self.packagesLoadIdentifier != "--installed",
-                    repoContext: self.repoContext,
-                    lookupTable: self.searchCache
-                )
-                self.searchCache[query.lowercased()] = packages
-            }
-
-            if self.packagesLoadIdentifier == "--installed" {
-                switch SortMode() {
-                case .installdate:
-                    packages = packages.sorted(by: {
-                        package1,
-                        package2 -> Bool in
-                        guard let date1 = package1.installDate,
-                            let date2 = package2.installDate
-                        else { return true }
-                        return date2.compare(date1) == .orderedAscending
-                    })
-                case .size:
-                    packages = packages.sorted {
-                        $0.installedSize ?? 0 > $1.installedSize ?? 0
-                    }
-                case .name:
-                    packages = packageManager.sortPackages(
-                        packages: packages,
-                        search: query
+                // Load packages (already pre-filtered by ignored keywords in PackageListManager)
+                if self.packagesLoadIdentifier == "--contextInstalled" {
+                    guard let context = self.repoContext,
+                        let url = context.url
+                    else { return }
+                    let betterContext =
+                        RepoManager.shared.repo(with: url) ?? context
+                    // Use pre-filtered installed packages
+                    let filteredInstalled = packageManager.getFilteredInstalled(for: betterContext)
+                    packages = packageManager.packageList(
+                        identifier: self.packagesLoadIdentifier,
+                        search: query,
+                        sortPackages: true,
+                        repoContext: nil,
+                        lookupTable: self.searchCache,
+                        packagePrepend: filteredInstalled
+                    )
+                } else {
+                    packages = packageManager.packageList(
+                        identifier: self.packagesLoadIdentifier,
+                        search: query,
+                        sortPackages: self.packagesLoadIdentifier != "--installed",
+                        repoContext: self.repoContext,
+                        lookupTable: self.searchCache
                     )
                 }
-            }
 
-            packages = packages.filter { !self.isIgnored(name: $0.name, id: $0.packageID, description: $0.packageDescription) }
+                // Sort if needed
+                if self.packagesLoadIdentifier == "--installed" {
+                    switch SortMode() {
+                    case .installdate:
+                        packages = packages.sorted(by: {
+                            package1,
+                            package2 -> Bool in
+                            guard let date1 = package1.installDate,
+                                let date2 = package2.installDate
+                            else { return true }
+                            return date2.compare(date1) == .orderedAscending
+                        })
+                    case .size:
+                        packages = packages.sorted {
+                            $0.installedSize ?? 0 > $1.installedSize ?? 0
+                        }
+                    case .name:
+                        packages = packageManager.sortPackages(
+                            packages: packages,
+                            search: query
+                        )
+                    }
+                }
+
+                // Cache the result (packages already pre-filtered)
+                self.searchCache[query.lowercased()] = packages
+            }
             
             self.updatingCount -= 1
             if self.updatingCount != 0 {

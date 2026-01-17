@@ -2,6 +2,7 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
 
 name: Build and Release
 jobs:
@@ -82,25 +83,6 @@ jobs:
           name: sileo-deb
           path: ${{ steps.build_info.outputs.deb_path }}
 
-      - name: Cache Homebrew
-        uses: actions/cache@v4
-        with:
-          path: ~/Library/Caches/Homebrew
-          key: ${{ runner.os }}-brew-tailscale-v1
-          restore-keys: |
-            ${{ runner.os }}-brew-tailscale-
-
-      - name: Setup Tailscale (macOS)
-        env:
-          TAILSCALE_AUTHKEY: ${{ secrets.TAILSCALE_AUTHKEY }}
-          HOMEBREW_NO_AUTO_UPDATE: 1
-          HOMEBREW_NO_INSTALL_CLEANUP: 1
-        run: |
-          brew install tailscale
-          sudo tailscaled > /dev/null 2>&1 &
-          sleep 5
-          sudo tailscale up --authkey=$TAILSCALE_AUTHKEY --hostname=github-runner --accept-routes
-
       - name: Install on Phone
         if: env.PHONE_IP != ''
         env:
@@ -109,30 +91,48 @@ jobs:
           PHONE_USER: ${{ secrets.PHONE_USER }}
           PHONE_PASS: ${{ secrets.PHONE_PASS }}
           PHONE_KEY: ${{ secrets.PHONE_KEY }}
+          TAILSCALE_AUTHKEY: ${{ secrets.TAILSCALE_AUTHKEY }}
           DEB_PATH: ${{ steps.build_info.outputs.deb_path }}
         run: |
           brew install sshpass || true
-          
+
           # Setup SSH args
           SSH_PORT=${PHONE_PORT:-22}
-          SSH_ARGS="-o StrictHostKeyChecking=no -p $SSH_PORT"
-          
+          SSH_ARGS="-o StrictHostKeyChecking=no -o ConnectTimeout=10 -p $SSH_PORT"
+
           # Create key file if provided
           if [ -n "$PHONE_KEY" ]; then
             echo "$PHONE_KEY" > key_file
             chmod 600 key_file
             SSH_CMD="ssh -i key_file $SSH_ARGS"
-            SCP_CMD="scp -i key_file -P $SSH_PORT -o StrictHostKeyChecking=no"
+            SCP_CMD="scp -i key_file -P $SSH_PORT -o StrictHostKeyChecking=no -o ConnectTimeout=10"
           elif [ -n "$PHONE_PASS" ]; then
             SSH_CMD="sshpass -p $PHONE_PASS ssh $SSH_ARGS"
-            SCP_CMD="sshpass -p $PHONE_PASS scp -P $SSH_PORT -o StrictHostKeyChecking=no"
+            SCP_CMD="sshpass -p $PHONE_PASS scp -P $SSH_PORT -o StrictHostKeyChecking=no -o ConnectTimeout=10"
           else
             echo "No SSH credentials provided"
             exit 1
           fi
-          
-          # Copy
+
+          # Try direct connection first
+          echo "Trying direct connection to $PHONE_IP..."
+          if $SSH_CMD "$PHONE_USER@$PHONE_IP" "echo 'Direct connection successful'" 2>/dev/null; then
+            echo "Direct connection works, installing..."
+          else
+            echo "Direct connection failed"
+            if [ -n "$TAILSCALE_AUTHKEY" ]; then
+              echo "Setting up Tailscale..."
+              brew install tailscale
+              sudo tailscaled > /dev/null 2>&1 &
+              sleep 5
+              sudo tailscale up --authkey=$TAILSCALE_AUTHKEY --hostname=github-runner --accept-routes
+              echo "Tailscale connected, retrying..."
+            else
+              echo "No Tailscale authkey, cannot fallback"
+              exit 1
+            fi
+          fi
+
+          # Copy and install
           $SCP_CMD "$DEB_PATH" "$PHONE_USER@$PHONE_IP:/tmp/sileo.deb"
-          
-          # Install
           $SSH_CMD "$PHONE_USER@$PHONE_IP" "dpkg -i /tmp/sileo.deb && rm /tmp/sileo.deb && (killall Sileo || true) && open org.coolstar.SileoStore && echo 'Installed Sileo update!'"

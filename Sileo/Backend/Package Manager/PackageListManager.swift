@@ -31,6 +31,130 @@ final class PackageListManager {
     private let initSemphaore = DispatchSemaphore(value: 0)
     public var isLoaded = false
 
+    // Pre-filtered packages cache for performance
+    // Key: repo URL string or "__all__" for all packages, "__installed__" for installed
+    private var filteredPackagesCache = [String: [Package]]()
+    private var filteredCategoriesCache = [String: [String: Int]]()  // repo URL -> category counts
+    private let filterCacheLock = NSLock()
+    private var cachedIgnoredKeywords = [String]()
+
+    /// Get pre-filtered packages for a repo (or all repos if nil)
+    public func getFilteredPackages(for repo: Repo?) -> [Package] {
+        filterCacheLock.lock()
+        defer { filterCacheLock.unlock() }
+
+        let cacheKey = repo?.url?.absoluteString ?? "__all__"
+        if let cached = filteredPackagesCache[cacheKey] {
+            return cached
+        }
+
+        // Build and cache
+        var packages = repo?.packageArray ?? allPackagesArray
+        packages = filterIgnoredPackages(packages)
+        filteredPackagesCache[cacheKey] = packages
+        return packages
+    }
+
+    /// Get pre-filtered installed packages for a repo context
+    public func getFilteredInstalled(for repo: Repo?) -> [Package] {
+        filterCacheLock.lock()
+        defer { filterCacheLock.unlock() }
+
+        let cacheKey = (repo?.url?.absoluteString ?? "__all__") + "_installed"
+        if let cached = filteredPackagesCache[cacheKey] {
+            return cached
+        }
+
+        var installed = repo?.installed ?? []
+        installed = filterIgnoredPackages(installed)
+        filteredPackagesCache[cacheKey] = installed
+        return installed
+    }
+
+    /// Get pre-computed category counts for a repo
+    public func getFilteredCategoryCounts(for repo: Repo?) -> [String: Int] {
+        filterCacheLock.lock()
+        defer { filterCacheLock.unlock() }
+
+        let cacheKey = repo?.url?.absoluteString ?? "__all__"
+        if let cached = filteredCategoriesCache[cacheKey] {
+            return cached
+        }
+
+        // Build category counts from filtered packages
+        let packages = getFilteredPackagesUnlocked(for: repo)
+        var counts = [String: Int]()
+        for package in packages {
+            let category = PackageListManager.humanReadableCategory(package.section)
+            let key = "category:\(category)"
+            counts[key, default: 0] += 1
+        }
+        counts["--allCategories"] = packages.count
+
+        let installed = getFilteredInstalledUnlocked(for: repo)
+        counts["--contextInstalled"] = installed.count
+
+        filteredCategoriesCache[cacheKey] = counts
+        return counts
+    }
+
+    // Internal unlocked versions for use within already-locked contexts
+    private func getFilteredPackagesUnlocked(for repo: Repo?) -> [Package] {
+        let cacheKey = repo?.url?.absoluteString ?? "__all__"
+        if let cached = filteredPackagesCache[cacheKey] {
+            return cached
+        }
+        var packages = repo?.packageArray ?? allPackagesArray
+        packages = filterIgnoredPackages(packages)
+        filteredPackagesCache[cacheKey] = packages
+        return packages
+    }
+
+    private func getFilteredInstalledUnlocked(for repo: Repo?) -> [Package] {
+        let cacheKey = (repo?.url?.absoluteString ?? "__all__") + "_installed"
+        if let cached = filteredPackagesCache[cacheKey] {
+            return cached
+        }
+        var installed = repo?.installed ?? []
+        installed = filterIgnoredPackages(installed)
+        filteredPackagesCache[cacheKey] = installed
+        return installed
+    }
+
+    /// Filter packages by ignored keywords
+    private func filterIgnoredPackages(_ packages: [Package]) -> [Package] {
+        if cachedIgnoredKeywords.isEmpty {
+            return packages
+        }
+        return packages.filter { package in
+            let name = package.name?.lowercased() ?? ""
+            let id = package.packageID.lowercased()
+            let desc = package.packageDescription?.lowercased() ?? ""
+            return !cachedIgnoredKeywords.contains { key in
+                name.contains(key) || id.contains(key) || desc.contains(key)
+            }
+        }
+    }
+
+    /// Invalidate all filtered caches (call when repos change or ignored keywords change)
+    public func invalidateFilteredCache() {
+        filterCacheLock.lock()
+        defer { filterCacheLock.unlock() }
+        filteredPackagesCache.removeAll()
+        filteredCategoriesCache.removeAll()
+        // Reload ignored keywords
+        cachedIgnoredKeywords = (UserDefaults.standard.stringArray(forKey: "IgnoredKeywords") ?? []).map { $0.lowercased() }
+    }
+
+    @objc private func ignoredKeywordsChanged() {
+        invalidateFilteredCache()
+    }
+
+    /// Public accessor for cached ignored keywords (for use by views filtering non-Package types)
+    public var ignoredKeywords: [String] {
+        return cachedIgnoredKeywords
+    }
+
     public var allPackagesArray: [Package] {
         var packages = [Package]()
         var installedPackages = installedPackages
@@ -61,6 +185,22 @@ final class PackageListManager {
         )
         operationQueue.maxConcurrentOperationCount =
             (ProcessInfo.processInfo.processorCount * 2)
+
+        // Load ignored keywords and observe changes
+        cachedIgnoredKeywords = (UserDefaults.standard.stringArray(forKey: "IgnoredKeywords") ?? []).map { $0.lowercased() }
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(ignoredKeywordsChanged),
+            name: Notification.Name("IgnoredKeywordsChanged"),
+            object: nil
+        )
+        // Also invalidate cache when repos reload
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(ignoredKeywordsChanged),
+            name: PackageListManager.reloadNotification,
+            object: nil
+        )
 
         packageListQueue.async { [self] in
             let repoMan = RepoManager.shared
@@ -424,10 +564,12 @@ final class PackageListManager {
                     }
                 }
                 if !isFound {
-                    packageList = repoContext?.packageArray ?? allPackagesArray
+                    // Use pre-filtered packages for performance
+                    packageList = getFilteredPackages(for: repoContext)
                 }
             } else {
-                packageList = repoContext?.packageArray ?? allPackagesArray
+                // Use pre-filtered packages for performance
+                packageList = getFilteredPackages(for: repoContext)
             }
         }
         if identifier.hasPrefix("category:") {

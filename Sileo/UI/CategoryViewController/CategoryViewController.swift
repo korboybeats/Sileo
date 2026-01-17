@@ -89,45 +89,25 @@ class CategoryViewController: SileoTableViewController {
         updateSileoColors()
     }
 
-    private func isIgnored(name: String?, id: String, description: String?) -> Bool {
-        let ignored = UserDefaults.standard.stringArray(forKey: "IgnoredKeywords") ?? []
-        if ignored.isEmpty { return false }
-        
-        let name = name?.lowercased() ?? ""
-        let id = id.lowercased()
-        let desc = description?.lowercased() ?? ""
-        
-        for keyword in ignored {
-            let key = keyword.lowercased()
-            if name.contains(key) || id.contains(key) || desc.contains(key) {
-                return true
-            }
-        }
-        return false
-    }
-
     @objc func reloadData() {
         DispatchQueue.global(qos: .userInteractive).async {
             var categories: Set<String> = []
-            var categoriesCountCache: [String: Int] = [:]
-            var packages: [Package]?
-            var installed: [Package]?
+            let repo: Repo?
             if let context = self.repoContext,
                 let url = context.url
             {
-                let betterContext =
-                    RepoManager.shared.repo(with: url) ?? context
-                packages = betterContext.packageArray
-                installed = betterContext.installed
+                repo = RepoManager.shared.repo(with: url) ?? context
             } else {
-                packages = PackageListManager.shared.allPackagesArray
-                installed = nil
+                repo = nil
             }
-            
-            packages = packages?.filter { !self.isIgnored(name: $0.name, id: $0.packageID, description: $0.packageDescription) }
-            installed = installed?.filter { !self.isIgnored(name: $0.name, id: $0.packageID, description: $0.packageDescription) }
 
-            for package in packages ?? [] {
+            // Use pre-filtered packages from PackageListManager (already filtered by ignored keywords)
+            let packages = PackageListManager.shared.getFilteredPackages(for: repo)
+            let installed = PackageListManager.shared.getFilteredInstalled(for: repo)
+
+            // Build category list
+            var categoriesCountCache: [String: Int] = [:]
+            for package in packages {
                 let category = PackageListManager.humanReadableCategory(
                     package.section
                 )
@@ -138,9 +118,9 @@ class CategoryViewController: SileoTableViewController {
                 let count = categoriesCountCache[loadIdentifier] ?? 0
                 categoriesCountCache[loadIdentifier] = count + 1
             }
-            categoriesCountCache["--allCategories"] = packages?.count ?? 0
-            categoriesCountCache["--contextInstalled"] = installed?.count ?? 0
-            self.showInstalled = !(installed?.isEmpty ?? true)
+            categoriesCountCache["--allCategories"] = packages.count
+            categoriesCountCache["--contextInstalled"] = installed.count
+            self.showInstalled = !installed.isEmpty
             self.categoriesCountCache = categoriesCountCache
             self.categories = categories.sorted(by: { str1, str2 -> Bool in
                 str1.compare(str2) != .orderedDescending

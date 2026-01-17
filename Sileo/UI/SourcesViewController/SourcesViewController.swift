@@ -9,12 +9,18 @@
 import Evander
 import Foundation
 
-final class SourcesViewController: SileoViewController {
+final class SourcesViewController: SileoViewController, UISearchResultsUpdating {
     private var sortedRepoList: [Repo] = []
+    private var filteredRepoList: [Repo] = []
+    private var isSearching: Bool {
+        return !(searchController?.searchBar.text?.isEmpty ?? true)
+    }
     var updatingRepoList: [Repo] = []
 
     private var tableView: SileoTableView?
     public var refreshControl = UIRefreshControl()
+    private var searchController: UISearchController?
+    private var hasAttachedRefreshControl = false
 
     required init?(coder: NSCoder) {
         super.init(coder: coder)
@@ -35,7 +41,7 @@ final class SourcesViewController: SileoViewController {
             return false
         }
 
-        let repo = sortedRepoList[indexPath.row]
+        let repo = displayRepoList[indexPath.row]
         if Jailbreak.bootstrap == .procursus {
             return repo.entryFile.hasSuffix("/sileo.sources")
         }
@@ -47,7 +53,7 @@ final class SourcesViewController: SileoViewController {
         categoryVC.title = String(localizationKey: "All_Packages.Title")
 
         if indexPath.section == 1 {
-            let repo = sortedRepoList[indexPath.row]
+            let repo = displayRepoList[indexPath.row]
             categoryVC.repoContext = repo
             categoryVC.title = repo.repoName
         }
@@ -61,21 +67,16 @@ final class SourcesViewController: SileoViewController {
         tableView = SileoTableView(frame: .zero, style: .plain)
         view.addSubview(tableView!)
         tableView?.translatesAutoresizingMaskIntoConstraints = false
-        tableView?.topAnchor.constraint(equalTo: view.topAnchor).isActive = true
-        tableView?.bottomAnchor.constraint(equalTo: view.bottomAnchor)
-            .isActive = true
-        tableView?.trailingAnchor.constraint(equalTo: view.trailingAnchor)
-            .isActive = true
-        tableView?.leadingAnchor.constraint(equalTo: view.leadingAnchor)
-            .isActive = true
+        NSLayoutConstraint.activate([
+            tableView!.topAnchor.constraint(equalTo: view.topAnchor),
+            tableView!.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            tableView!.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            tableView!.trailingAnchor.constraint(equalTo: view.trailingAnchor)
+        ])
+        // Configure refresh control target (attachment happens in viewDidAppear)
         #if !targetEnvironment(macCatalyst)
-            tableView?.refreshControl = refreshControl
+        refreshControl.addTarget(self, action: #selector(refreshSources(_:)), for: .valueChanged)
         #endif
-        refreshControl.addTarget(
-            self,
-            action: #selector(refreshSources(_:)),
-            for: .valueChanged
-        )
 
         self.title = String(localizationKey: "Sources_Page")
         tableView?.register(
@@ -105,6 +106,17 @@ final class SourcesViewController: SileoViewController {
 
         self.registerForPreviewing(with: self, sourceView: self.tableView!)
         self.navigationController?.navigationBar.superview?.tag = WHITE_BLUR_TAG
+
+        // Setup search controller
+        searchController = UISearchController(searchResultsController: nil)
+        searchController?.searchBar.placeholder = String(localizationKey: "Search")
+        searchController?.searchResultsUpdater = self
+        searchController?.obscuresBackgroundDuringPresentation = false
+        searchController?.hidesNavigationBarDuringPresentation = true
+        self.navigationItem.searchController = searchController
+        self.navigationItem.hidesSearchBarWhenScrolling = false
+        self.definesPresentationContext = true
+
         #if targetEnvironment(macCatalyst)
             let nav = self.navigationItem
             nav.rightBarButtonItem = UIBarButtonItem(
@@ -167,6 +179,17 @@ final class SourcesViewController: SileoViewController {
         super.viewDidAppear(animated)
         self.navigationController?.navigationBar._hidesShadow = true
         self.tableView?.backgroundColor = .sileoBackgroundColor
+
+        // Attach refresh control after layout is complete to avoid instant trigger with search bar
+        #if !targetEnvironment(macCatalyst)
+        if !hasAttachedRefreshControl {
+            hasAttachedRefreshControl = true
+            // Delay to ensure search controller layout is fully calculated
+            DispatchQueue.main.async {
+                self.tableView?.refreshControl = self.refreshControl
+            }
+        }
+        #endif
     }
 
     override func viewDidDisappear(_ animated: Bool) {
@@ -389,7 +412,6 @@ final class SourcesViewController: SileoViewController {
 
             if useRefreshControl {
                 if let tableView = self.tableView,
-                    let refreshControl = tableView.refreshControl,
                     !refreshControl.isRefreshing
                 {
                     refreshControl.beginRefreshing()
@@ -535,10 +557,11 @@ final class SourcesViewController: SileoViewController {
     }
 
     private func deleteRepo(at indexPath: IndexPath) {
-        let repo = self.sortedRepoList[indexPath.row]
+        let repo = self.displayRepoList[indexPath.row]
         RepoManager.shared.remove(repo: repo)
         tableView?.deleteRows(at: [indexPath], with: .fade)
         self.reSortList()
+        filteredRepoList.removeAll { $0 == repo }
         updatingRepoList.removeAll { $0 == repo }
         self.updateFooterCount()
         NotificationCenter.default.post(
@@ -566,14 +589,12 @@ final class SourcesViewController: SileoViewController {
             cell.repo = cellRepo
             cell.layoutSubviews()
         } else if let count = notification.object as? Int {
-            DispatchQueue.main.async {
-                guard
-                    let cell = self.tableView?.cellForRow(
-                        at: IndexPath(row: 0, section: 0)
-                    ) as? SourcesTableViewCell
-                else { return }
-                cell.installedLabel.text = "\(count)"
-            }
+            guard
+                let cell = self.tableView?.cellForRow(
+                    at: IndexPath(row: 0, section: 0)
+                ) as? SourcesTableViewCell
+            else { return }
+            cell.installedLabel.text = "\(count)"
         } else {
             for cell in tableView?.visibleCells ?? [] {
                 if let sourcesCell = cell as? SourcesTableViewCell {
@@ -587,7 +608,11 @@ final class SourcesViewController: SileoViewController {
 
     func reloadData() {
         self.reSortList()
-        self.tableView?.reloadData()
+        if let searchController = searchController {
+            updateSearchResults(for: searchController)
+        } else {
+            self.tableView?.reloadData()
+        }
     }
 
     @objc func exportSources(_ sender: Any?) {
@@ -1082,6 +1107,28 @@ final class SourcesViewController: SileoViewController {
 
         textField.text = text
     }
+
+    // MARK: - Search
+
+    private var displayRepoList: [Repo] {
+        return isSearching ? filteredRepoList : sortedRepoList
+    }
+
+    func updateSearchResults(for searchController: UISearchController) {
+        let searchText = searchController.searchBar.text?.lowercased() ?? ""
+
+        if searchText.isEmpty {
+            filteredRepoList = sortedRepoList
+        } else {
+            filteredRepoList = sortedRepoList.filter { repo in
+                repo.repoName.lowercased().contains(searchText) ||
+                repo.rawURL.lowercased().contains(searchText) ||
+                repo.repoDescription.lowercased().contains(searchText)
+            }
+        }
+
+        tableView?.reloadData()
+    }
 }
 
 extension SourcesViewController: UITableViewDataSource {  // UITableViewDataSource
@@ -1093,10 +1140,10 @@ extension SourcesViewController: UITableViewDataSource {  // UITableViewDataSour
         -> Int
     {
         if section == 0 {
-            return 1
+            return isSearching ? 0 : 1
         } else {
             self.reSortList()
-            return sortedRepoList.count
+            return displayRepoList.count
         }
     }
 
@@ -1149,7 +1196,7 @@ extension SourcesViewController: UITableViewDataSource {  // UITableViewDataSour
     ) -> CGFloat {
         switch section {
         case 0:
-            return 5
+            return isSearching ? 0 : 5
         case 1:
             return 44
         default:
@@ -1166,7 +1213,7 @@ extension SourcesViewController: UITableViewDataSource {  // UITableViewDataSour
         let footerView = SourcesTableViewFooter(
             reuseIdentifier: "Sileo.SourcesTableViewFooter"
         )
-        footerView.setCount(sortedRepoList.count)
+        footerView.setCount(displayRepoList.count)
         return footerView
     }
 
@@ -1174,7 +1221,10 @@ extension SourcesViewController: UITableViewDataSource {  // UITableViewDataSour
         _ tableView: UITableView,
         heightForFooterInSection section: Int
     ) -> CGFloat {
-        return (section == 0) ? 2 : 30
+        if section == 0 {
+            return isSearching ? 0 : 2
+        }
+        return 30
     }
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath)
@@ -1192,7 +1242,7 @@ extension SourcesViewController: UITableViewDataSource {  // UITableViewDataSour
         if indexPath.section == 0 {
             cell.repo = nil
         } else {
-            cell.repo = sortedRepoList[indexPath.row]
+            cell.repo = displayRepoList[indexPath.row]
         }
         return cell
     }
@@ -1214,6 +1264,7 @@ extension SourcesViewController: UITableViewDataSource {  // UITableViewDataSour
 }
 
 extension SourcesViewController: UITableViewDelegate {  // UITableViewDelegate
+
     func tableView(
         _ tableView: UITableView,
         shouldShowMenuForRowAt indexPath: IndexPath
@@ -1241,7 +1292,7 @@ extension SourcesViewController: UITableViewDelegate {  // UITableViewDelegate
                 return
             }
 
-            let repo = sortedRepoList[indexPath.row]
+            let repo = displayRepoList[indexPath.row]
             UIPasteboard.general.url = repo.url
         }
     #else
@@ -1255,7 +1306,7 @@ extension SourcesViewController: UITableViewDelegate {  // UITableViewDelegate
                 previewProvider: nil
             ) { [weak self] _ in
                 let copyAction = UIAction(title: "Copy") { [weak self] _ in
-                    let repo = self?.sortedRepoList[indexPath.row]
+                    let repo = self?.displayRepoList[indexPath.row]
                     UIPasteboard.general.url = repo?.url
                 }
                 let deleteAction = UIAction(title: "Remove") { [weak self] _ in
@@ -1265,7 +1316,7 @@ extension SourcesViewController: UITableViewDelegate {  // UITableViewDelegate
                 let refreshAction = UIAction(title: "Refresh") {
                     [weak self] _ in
                     guard let strong = self else { return }
-                    let repo = strong.sortedRepoList[indexPath.row]
+                    let repo = strong.displayRepoList[indexPath.row]
                     strong.updateSpecific([repo])
                 }
                 return UIMenu(
@@ -1327,7 +1378,7 @@ extension SourcesViewController: UITableViewDelegate {  // UITableViewDelegate
             style: .normal,
             title: String(localizationKey: "Refresh")
         ) { _, _, completionHandler in
-            self.updateSingleRepo(self.sortedRepoList[indexPath.row])
+            self.updateSingleRepo(self.displayRepoList[indexPath.row])
             completionHandler(true)
         }
         refresh.backgroundColor = .systemGreen
