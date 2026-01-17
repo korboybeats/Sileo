@@ -109,7 +109,7 @@ final class SourcesViewController: SileoViewController, UISearchResultsUpdating 
 
         // Setup search controller
         searchController = UISearchController(searchResultsController: nil)
-        searchController?.searchBar.placeholder = String(localizationKey: "Search")
+        searchController?.searchBar.placeholder = "Search for Repo"
         searchController?.searchResultsUpdater = self
         searchController?.obscuresBackgroundDuringPresentation = false
         searchController?.hidesNavigationBarDuringPresentation = true
